@@ -19,6 +19,7 @@ export interface PersistedState {
 
 const STORAGE_KEY = "smv-tabs-v1";
 
+/** Runtime shape-check for a value read out of localStorage — never trust it just because JSON.parse succeeded. */
 function isPersistedTab(value: unknown): value is PersistedTab {
   if (!value || typeof value !== "object") return false;
   const t = value as Record<string, unknown>;

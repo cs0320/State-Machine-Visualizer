@@ -3,6 +3,7 @@ import type { JsonValue } from "../types/stateMachine";
 import type { SimStep } from "../engine/simulate";
 import "./StateInspector.css";
 
+/** Human-readable form of a step's `char` — `null` (end-of-input) and a couple of easily-invisible characters get spelled out rather than printed raw. */
 function formatChar(char: string | null): string {
   if (char === null) return "(end of input)";
   if (char === "\n") return "'\\n'";
@@ -10,10 +11,12 @@ function formatChar(char: string | null): string {
   return `'${char}'`;
 }
 
+/** A variable's value as it should appear in the table — just JSON, so strings/arrays/objects/numbers all read unambiguously. */
 function formatValue(value: JsonValue): string {
   return JSON.stringify(value);
 }
 
+/** Renders the current `vars`, highlighting whichever keys changed on the selected step (see `changedKeysOf`). */
 function VariablesTable({ variables, changedKeys }: { variables: Record<string, JsonValue>; changedKeys: Set<string> }) {
   const keys = Object.keys(variables);
   if (keys.length === 0) return <p className="state-inspector__muted">No variables defined.</p>;
@@ -33,6 +36,7 @@ function VariablesTable({ variables, changedKeys }: { variables: Record<string, 
   );
 }
 
+/** Which variable names differ between two snapshots (compared by JSON equality, since values can be arrays/objects). */
 function changedKeysOf(before: Record<string, JsonValue>, after: Record<string, JsonValue>): Set<string> {
   const keys = new Set<string>();
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -41,11 +45,13 @@ function changedKeysOf(before: Record<string, JsonValue>, after: Record<string, 
   return keys;
 }
 
+/** One line in the History list: what was read and which transition it triggered (or that it got stuck). */
 function historyLabel(step: SimStep): string {
   if (step.stuck) return `stuck at ${formatChar(step.char)}`;
   return `${formatChar(step.char)} → ${step.transition?.label ?? step.transition?.id ?? "?"}`;
 }
 
+/** The right-hand "what's happening right now" panel: current step's from/to/read-character, the live `vars`, and a clickable step history (each entry jumps playback straight to that step via GOTO_STEP). */
 export function StateInspector() {
   const { active, dispatch } = useAppContext();
   const { machine, simulation, currentStepIndex } = active;

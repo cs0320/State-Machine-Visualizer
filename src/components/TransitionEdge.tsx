@@ -3,6 +3,19 @@ import { BaseEdge, EdgeLabelRenderer, useInternalNode, useReactFlow, type Edge, 
 import { circleBoundaryPoint, polarPoint, type Point } from "../engine/nodeGeometry";
 import { closestTOnCurve, cubicBezierPoint, quadraticBezierPoint } from "../engine/bezier";
 
+/**
+ * Renders one transition as a "floating edge": rather than connecting through React Flow's
+ * regular fixed handle positions (see StateNode.tsx — both handles are pinned dead-center and
+ * invisible), it computes its own attachment points on the live boundary of the source/target
+ * node circles every render (`nodeCenterAndRadius` + `useInternalNode`), which is what lets edges
+ * stay correctly anchored as nodes get dragged around, and lets multiple parallel
+ * edges/self-loops between the same nodes fan out at different angles instead of stacking.
+ *
+ * The label is draggable along the edge's own curve (not free-floating) — see the `labelT` state
+ * and `handleLabelPointerMove` below, which reprojects the pointer onto the actual bezier path on
+ * every move via `closestTOnCurve`, so the label can visually only ever sit on the line it's
+ * labeling.
+ */
 export interface TransitionEdgeData {
   label: string;
   active: boolean;
@@ -21,6 +34,7 @@ const SELF_LOOP_SPAN_DEG = 34;
 const SELF_LOOP_GAP_DEG = 15;
 const SELF_LOOP_HEIGHT = 70;
 
+/** A node's live center and radius, read straight from React Flow's internal store rather than our own layout state — this is what makes edges track a node while it's being dragged. */
 function nodeCenterAndRadius(node: InternalNode<Node>): { center: Point; radius: number } {
   const width = node.measured.width ?? DEFAULT_DIAMETER;
   const height = node.measured.height ?? DEFAULT_DIAMETER;
@@ -101,12 +115,14 @@ function parallelEdgeGeometry(
   return { kind: "quadratic", p0: sourcePoint, control, p1: targetPoint };
 }
 
+/** SVG path `d` string for the geometry — what actually gets drawn. */
 function pathFor(geo: EdgeGeometryPoints): string {
   return geo.kind === "quadratic"
     ? `M ${geo.p0.x} ${geo.p0.y} Q ${geo.control.x} ${geo.control.y} ${geo.p1.x} ${geo.p1.y}`
     : `M ${geo.p0.x} ${geo.p0.y} C ${geo.c1.x} ${geo.c1.y}, ${geo.c2.x} ${geo.c2.y}, ${geo.p1.x} ${geo.p1.y}`;
 }
 
+/** The exact point on the curve at parameter `t` (0 = start, 1 = end) — used both to place the label and, via closestTOnCurve, to constrain dragging it. */
 function sampleAt(geo: EdgeGeometryPoints, t: number): Point {
   return geo.kind === "quadratic"
     ? quadraticBezierPoint(geo.p0, geo.control, geo.p1, t)

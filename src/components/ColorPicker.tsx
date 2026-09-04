@@ -8,6 +8,13 @@ const LIGHT_L = 58;
 const DARK_S = 85;
 const DARK_L = 74;
 
+/**
+ * Sets the CSS custom properties `--accent` (and its dark-mode variant) derive from — see
+ * index.css for the actual `hsl(...)` formulas. Saturation/lightness aren't just the fixed
+ * LIGHT_S/LIGHT_L/DARK_S/DARK_L constants passed straight through: `pickAccessibleAccent` nudges
+ * them per-hue when needed to guarantee WCAG AA text contrast (a handful of hues around 220/280
+ * degrees fail contrast at the base values with either white or near-black text — see color.ts).
+ */
 function applyAccentHue(hue: number) {
   const light = pickAccessibleAccent(hue, LIGHT_S, LIGHT_L);
   const dark = pickAccessibleAccent(hue, DARK_S, DARK_L);
@@ -21,6 +28,7 @@ function applyAccentHue(hue: number) {
   root.setProperty("--accent-contrast-dark", dark.textColor);
 }
 
+/** The accent-color hue wheel shown in the header. See BackgroundColorPicker.tsx for the equivalent for the neutral panel/background palette. */
 export function ColorPicker() {
   return (
     <HueWheel

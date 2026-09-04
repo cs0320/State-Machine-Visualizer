@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+/**
+ * The core data model every machine in this app ultimately becomes: a plain-data description of
+ * states/transitions/conditions/actions, validated with zod. Nothing here executes anything —
+ * this is deliberately just data. `tsCompiler.ts` is the only thing that currently *produces* a
+ * StateMachineDef (by parsing the constrained TypeScript format), and `simulate.ts` is the only
+ * thing that *interprets* one. `charMatches` is a schema-level condition kind with no TypeScript
+ * syntax that compiles to it — it dates from when machines could also be hand-authored as raw
+ * JSON directly against this schema (since removed from the UI in favor of TypeScript-only
+ * authoring), and is kept here because the schema/engine still support it even though nothing in
+ * the current app produces it.
+ */
+
 // A JSON-safe value: what a machine's variables are allowed to hold.
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
@@ -63,6 +75,7 @@ export const transitionDefSchema = z.object({
 });
 export type TransitionDef = z.infer<typeof transitionDefSchema>;
 
+/** Cross-field validation beyond what the per-field schemas above can express: no duplicate ids, every from/to/startState reference an actual declared state, and any regex condition actually compiles. */
 export const stateMachineDefSchema = z
   .object({
     name: z.string().min(1),
@@ -123,6 +136,7 @@ export const stateMachineDefSchema = z
   });
 export type StateMachineDef = z.infer<typeof stateMachineDefSchema>;
 
+/** Values that appear more than once in the input, deduplicated. */
 function findDuplicates(values: string[]): string[] {
   const seen = new Set<string>();
   const dups = new Set<string>();

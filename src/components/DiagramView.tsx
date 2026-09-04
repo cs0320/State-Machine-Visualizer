@@ -11,6 +11,17 @@ import "./DiagramView.css";
 const nodeTypes: NodeTypes = { state: StateNode };
 const edgeTypes: EdgeTypes = { transition: TransitionEdge };
 
+/**
+ * The actual React Flow canvas. Split from `DiagramView` only because `useNodesState` (and
+ * everything else here) needs to run inside a `<ReactFlowProvider>`.
+ *
+ * Node positions are real React state (`useNodesState`), not derived from the machine on every
+ * render — see the two effects below for why that split matters: one resets layout only when the
+ * *machine itself* changes (so switching tabs or applying an edit gets a fresh circular layout),
+ * the other updates only the active-state highlight as playback advances, without touching
+ * position. If both were combined into one derivation, every step of playback would snap
+ * user-dragged nodes back to their computed layout position.
+ */
 function DiagramInner() {
   const { active } = useAppContext();
   const { machine, simulation, currentStepIndex } = active;
@@ -21,7 +32,7 @@ function DiagramInner() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<StateFlowNode>([]);
 
-  // Re-layout only when the machine definition itself changes (new/edited JSON applied).
+  // Re-layout only when the machine definition itself changes (a tab switch or a fresh Apply).
   // This intentionally does NOT depend on activeState, so user-dragged positions survive playback.
   useEffect(() => {
     if (!machine) {
@@ -98,6 +109,7 @@ function DiagramInner() {
   );
 }
 
+/** Fallback edge label text when a transition has no explicit `label` — describes its ConditionSpec in plain text ("otherwise" for the catch-all "else" kind, etc.). */
 function conditionSummary(condition: { type: string; value?: string; values?: string[]; pattern?: string }): string {
   switch (condition.type) {
     case "charEquals":
@@ -115,6 +127,7 @@ function conditionSummary(condition: { type: string; value?: string; values?: st
   }
 }
 
+/** Public entry point: just supplies the `ReactFlowProvider` context `DiagramInner` needs. */
 export function DiagramView() {
   return (
     <ReactFlowProvider>

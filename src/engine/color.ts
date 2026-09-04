@@ -42,6 +42,7 @@ export function bestTextColorForHsl(h: number, s: number, l: number): string {
   return contrastWithWhite >= contrastWithBlack ? WHITE : NEAR_BLACK;
 }
 
+/** The better of the two contrast ratios (white text vs. near-black text) achievable against this HSL background. */
 function bestContrastAt(h: number, s: number, l: number): number {
   const [r, g, b] = hslToRgb(h, s, l);
   const bgLum = relativeLuminance(r, g, b);

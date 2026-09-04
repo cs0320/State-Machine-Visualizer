@@ -12,6 +12,7 @@ function clamp(width: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, width));
 }
 
+/** Lazy `useState` initializer for useResizableWidth: last-saved width if there is one and it's still in range, otherwise the default. */
 function readStoredWidth(storageKey: string, min: number, max: number, defaultWidth: number): number {
   const raw = typeof localStorage !== "undefined" ? localStorage.getItem(storageKey) : null;
   const parsed = raw ? Number(raw) : NaN;
@@ -61,6 +62,7 @@ function useResizableWidth(storageKey: string, min: number, max: number, default
   return { width, handlePointerDown, handlePointerMove, handlePointerUp, handleKeyDown };
 }
 
+/** The app's layout: header + a 3-panel grid (editor / diagram / input+inspector) with two draggable resizers between them. Split out from `App` only so it can sit inside AppProvider and call useAppContext(). */
 function AppShell() {
   const { active } = useAppContext();
   const hasError = Boolean(active.simulation?.erroredStep);
@@ -130,6 +132,7 @@ function AppShell() {
   );
 }
 
+/** Root component: wires up the single app-wide state provider (see AppContext.tsx) around the actual UI. */
 function App() {
   return (
     <AppProvider>

@@ -145,20 +145,24 @@ export function compileTypeScript(source: string): CompileResult {
   return { ok: true, machine, sourceMap };
 }
 
+/** 1-indexed source line a node starts on, for error messages and the TsSourceMap. */
 function line(node: Node): number {
   return node.loc?.start.line ?? 0;
 }
 
+/** Last line covered by a list of statements — used to compute a `case`'s full source range. */
 function lastLine(nodes: Node[]): number | undefined {
   return nodes.at(-1)?.loc?.end.line;
 }
 
+/** Finds a top-level `const <name> = ...;` (or `let`/`var`) declaration by identifier name. */
 function findVarDecl(body: Statement[], name: string): VariableDeclaration | undefined {
   return body.find(
     (n): n is VariableDeclaration => n.type === "VariableDeclaration" && n.declarations.some((d) => d.id.type === "Identifier" && d.id.name === name)
   );
 }
 
+/** Reads the state ids out of `type State = "a" | "b" | ...;` (a single member is also accepted, not just a union). */
 function parseStateUnion(alias: TSTypeAliasDeclaration, errors: CompileError[]): string[] {
   const t = alias.typeAnnotation;
   const memberTypes = t.type === "TSUnionType" ? t.types : [t];
@@ -173,10 +177,12 @@ function parseStateUnion(alias: TSTypeAliasDeclaration, errors: CompileError[]):
   return ids;
 }
 
+/** The initializer expression (the right-hand side) of a `const <name> = <init>;` declarator. */
 function declaratorInit(decl: VariableDeclaration, name: string): Expression | null | undefined {
   return decl.declarations.find((d) => d.id.type === "Identifier" && d.id.name === name)?.init;
 }
 
+/** Reads `const labels: Record<State, string> = { a: "...", b: "..." };` into a state-id -> display-name map. */
 function parseLabelsObject(decl: VariableDeclaration, stateIds: Set<string>, errors: CompileError[]): Record<string, string> {
   const init = declaratorInit(decl, "labels");
   const labels: Record<string, string> = {};
@@ -203,6 +209,7 @@ function parseLabelsObject(decl: VariableDeclaration, stateIds: Set<string>, err
   return labels;
 }
 
+/** Reads `const errorStates: State[] = ["a", ...];` — states listed here get `isError: true` (see simulate.ts for what that does at runtime). */
 function parseErrorStates(decl: VariableDeclaration, stateIds: Set<string>, errors: CompileError[]): Set<string> {
   const init = declaratorInit(decl, "errorStates");
   const result = new Set<string>();
@@ -224,6 +231,12 @@ function parseErrorStates(decl: VariableDeclaration, stateIds: Set<string>, erro
   return result;
 }
 
+/**
+ * Reads `const vars = { ... };` into the machine's initial variables. Each property value must
+ * reduce to a plain JSON literal (see literalToJson) — no expressions, no `as` casts. The type
+ * annotation some examples put on `vars` (`const vars: {...} = {...}`) is invisible to this
+ * function; it only ever looks at the initializer, never the declared type.
+ */
 function parseVarsObject(decl: VariableDeclaration, errors: CompileError[]): Record<string, JsonValue> {
   const init = declaratorInit(decl, "vars");
   const vars: Record<string, JsonValue> = {};
@@ -247,6 +260,7 @@ function parseVarsObject(decl: VariableDeclaration, errors: CompileError[]): Rec
   return vars;
 }
 
+/** Reads `const startState: State = "a";` — must be a string literal matching a declared state. */
 function parseStartState(decl: VariableDeclaration, stateIds: Set<string>, errors: CompileError[]): string | undefined {
   const init = declaratorInit(decl, "startState");
   if (!init || init.type !== "StringLiteral") {
@@ -260,6 +274,13 @@ function parseStartState(decl: VariableDeclaration, stateIds: Set<string>, error
   return init.value;
 }
 
+/**
+ * Recursively converts a literal expression (string/number/boolean/null, or an array/object built
+ * only out of literals) into a plain JS value. Returns `undefined` for anything else — a variable
+ * reference, a function call, a template literal, an `as` cast, etc. — which callers treat as
+ * "this isn't a literal" rather than pushing their own error (so the same helper can be reused for
+ * `vars` initial values and for literal ValueExprs inside actions, each with their own message).
+ */
 function literalToJson(node: Expression, errors: CompileError[]): JsonValue | undefined {
   switch (node.type) {
     case "StringLiteral":
@@ -351,6 +372,13 @@ function extractRules(statements: Statement[], stateId: string, errors: CompileE
   return rules;
 }
 
+/**
+ * Turns an `if` test expression into a ConditionSpec: `char === "x"` -> charEquals, `char === null`
+ * -> endOfInput, or a chain of `char === "a" || char === "b" || ...` -> charIn. The `||` case
+ * recurses on both sides and merges two charEquals/charIn results into one charIn — anything that
+ * doesn't reduce to that shape (comparing something other than `char`, mixing `||` with other
+ * operators, etc.) is reported as an error rather than silently ignored.
+ */
 function analyzeCondition(test: Expression, errors: CompileError[]): { spec: ConditionSpec; label: string } | undefined {
   if (test.type === "LogicalExpression" && test.operator === "||") {
     const left = analyzeCondition(test.left, errors);
@@ -387,6 +415,12 @@ function analyzeCondition(test: Expression, errors: CompileError[]): { spec: Con
   return undefined;
 }
 
+/**
+ * Walks one rule's statement list (the body of an `if`/`else`/bare-tail branch) and requires it to
+ * be zero or more recognized action statements (see analyzeAction) followed by exactly one
+ * `return "<state>";` as the last statement. Returns the branch's line range alongside the parsed
+ * actions/target, which extractRules attaches to the resulting Rule for the TsSourceMap.
+ */
 function extractActionsAndReturn(
   statements: Statement[],
   stateId: string,
@@ -421,6 +455,12 @@ function extractActionsAndReturn(
   return undefined;
 }
 
+/**
+ * Recognizes exactly three action shapes and maps each to its ActionSpec kind — `vars.x = <v>`
+ * (set), `vars.x += <v>` (append), and `vars.x.push(<v>)` (push). See simulate.ts's
+ * `applyActions` for what each of these actually does at runtime — notably, this function has no
+ * idea what type `x` is, so it can't warn here if `+=`/`.push()` will misbehave for that variable.
+ */
 function analyzeAction(expr: Expression, errors: CompileError[]): ActionSpec | undefined {
   if (expr.type === "AssignmentExpression" && expr.left.type === "MemberExpression") {
     const target = memberTargetName(expr.left, errors);
@@ -458,6 +498,7 @@ function analyzeAction(expr: Expression, errors: CompileError[]): ActionSpec | u
   return undefined;
 }
 
+/** Confirms an expression is exactly `vars.<name>` (the literal identifier `vars`) and returns `<name>`. */
 function memberTargetName(node: Expression, errors: CompileError[]): string | undefined {
   if (node.type !== "MemberExpression" || node.object.type !== "Identifier" || node.object.name !== "vars" || node.property.type !== "Identifier") {
     errors.push({ message: "Expected `vars.<name>`.", line: line(node) });
@@ -466,6 +507,7 @@ function memberTargetName(node: Expression, errors: CompileError[]): string | un
   return node.property.name;
 }
 
+/** Resolves the right-hand side of an action to a ValueExpr: the literal identifier `char`, a `vars.y` reference, or a literal (via literalToJson). */
 function resolveValueExpr(node: Expression, errors: CompileError[]): ValueExpr | undefined {
   if (node.type === "Identifier" && node.name === "char") {
     return { kind: "char" };

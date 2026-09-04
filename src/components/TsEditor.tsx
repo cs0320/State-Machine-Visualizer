@@ -7,6 +7,7 @@ import { useAppContext, type Tab } from "../state/AppContext";
 import type { LineRange } from "../engine/tsCompiler";
 import "./TsEditor.css";
 
+/** CodeMirror extension that highlights a line range — used to show which lines of source produced the currently-active playback step (see `highlightRange` below, sourced from the compiler's TsSourceMap). */
 function highlightRangeExtension(range: LineRange | null): Extension {
   return EditorView.decorations.of((view) => {
     if (!range) return Decoration.none;
@@ -30,6 +31,12 @@ interface TabButtonProps {
   onRemove: () => void;
 }
 
+/**
+ * One tab in the editor's tab strip. Built-in tabs (`!tab.isCustom`) render as a plain button with
+ * no rename/remove affordance at all; custom tabs get double-click-to-rename (an inline `<input>`
+ * swapped in via local `renaming` state) and a remove button that confirms first if there's actual
+ * content, to avoid losing work to a stray click.
+ */
 function TabButton({ tab, isActive, startInRename, onSelect, onRename, onRemove }: TabButtonProps) {
   const [renaming, setRenaming] = useState(startInRename);
   const [draftName, setDraftName] = useState(tab.name);
@@ -90,6 +97,7 @@ function TabButton({ tab, isActive, startInRename, onSelect, onRename, onRemove 
   );
 }
 
+/** The left panel: tab strip, CodeMirror source editor, and the two independent error panels (structural compile errors vs. real TypeScript diagnostics — see AppContext.tsx's `compileAndCheck`). */
 export function TsEditor() {
   const { state, activeTab, active, dispatch } = useAppContext();
   const { tsSourceText, tsErrors, typeErrors, tsSourceMap, simulation, currentStepIndex } = active;

@@ -1,5 +1,9 @@
 import type { Point } from "./nodeGeometry";
 
+/**
+ * Point on the curve TransitionEdge draws for a non-self-loop transition (source/target rim
+ * points + one perpendicular-offset control point) at parameter `t` (0 = p0, 1 = p1).
+ */
 export function quadraticBezierPoint(p0: Point, control: Point, p1: Point, t: number): Point {
   const mt = 1 - t;
   return {
@@ -8,6 +12,7 @@ export function quadraticBezierPoint(p0: Point, control: Point, p1: Point, t: nu
   };
 }
 
+/** Same idea as quadraticBezierPoint, for the two-control-point curve TransitionEdge draws for a self-loop. */
 export function cubicBezierPoint(p0: Point, c1: Point, c2: Point, p1: Point, t: number): Point {
   const mt = 1 - t;
   return {

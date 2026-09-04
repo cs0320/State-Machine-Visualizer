@@ -1,6 +1,17 @@
 import { matchesCondition, resolveValue } from "./expression";
 import type { ActionSpec, JsonValue, StateMachineDef, TransitionDef } from "../types/stateMachine";
 
+/**
+ * The interpreter for a compiled StateMachineDef (produced by tsCompiler.ts or hand-written JSON).
+ * `simulate()` never executes user code — it walks a plain-data description of states/transitions
+ * and applies a small, fixed set of actions (`set`/`append`/`push`), so there's no eval/Function
+ * anywhere in this path. This file is the single source of truth for what a machine actually does
+ * when run; the TypeScript compiler (tsCompiler.ts) and the real tsc-based type checker
+ * (tsTypeCheck.ts) both only ever validate source text — neither one influences this runtime
+ * behavior, which is why an action can be valid TypeScript and still behave unexpectedly here (see
+ * `applyActions`'s "append" case for the sharpest example of that gap).
+ */
+
 export interface SimStep {
   index: number;
   /** Position in the input string of the character consumed this step (input.length for the end-of-input event). */
@@ -27,6 +38,7 @@ export interface SimulationResult {
   erroredStep: SimStep | null;
 }
 
+/** First transition out of `fromState` whose condition matches the given character (or `null` for end-of-input), in declaration order. */
 function findTransition(
   machine: StateMachineDef,
   fromState: string,
@@ -35,6 +47,18 @@ function findTransition(
   return machine.transitions.find((t) => t.from === fromState && matchesCondition(t.condition, char));
 }
 
+/**
+ * Applies one transition's actions to a cloned copy of `variables` (never mutates the input),
+ * in order. Each action kind has a single, fixed behavior — it does not look at what type the
+ * variable was declared as in the original source, only at the variable's actual current value:
+ *
+ * - `set`   — unconditional replace. Works correctly for any value type.
+ * - `append`  — always string concatenation. If the current value isn't already a string, it's
+ *   discarded (replaced with `""`) before appending — so using `append` on a variable that's
+ *   currently a number silently corrupts it into a string, rather than doing numeric addition.
+ * - `push`  — appends to an array. If the current value isn't already an array, it's replaced
+ *   with a new single-element array — same "silently discard, don't error" shape as `append`.
+ */
 function applyActions(
   actions: ActionSpec[],
   char: string | null,
@@ -62,7 +86,18 @@ function applyActions(
   return next;
 }
 
-/** Runs a machine over an input string, producing a full step-by-step trace. */
+/**
+ * Runs a machine over an input string in one pass, producing the full step-by-step trace up
+ * front (the UI just indexes into `steps` afterwards — nothing is re-run when stepping back and
+ * forth through playback). Each character is one event; after the last character there's one more
+ * synthetic end-of-input event (`char === null`) before the run ends.
+ *
+ * Two ways a run can end early, both distinct from reaching the end of input normally:
+ * - `stuck: true` — no transition matched a *real* character. Recorded as a final step and halted.
+ *   (No matching transition at end-of-input is not stuck — that's just "nothing more to do".)
+ * - `erroredStep` — a transition led into a state flagged `isError`. The run stops immediately,
+ *   without consuming any further input, even mid-string.
+ */
 export function simulate(machine: StateMachineDef, input: string): SimulationResult {
   const errorStateIds = new Set(machine.states.filter((s) => s.isError).map((s) => s.id));
   const steps: SimStep[] = [];

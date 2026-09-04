@@ -4,6 +4,12 @@ import "./InputRunner.css";
 
 const PLAY_INTERVAL_MS = 700;
 
+/**
+ * The input textarea, character-by-character preview with a read-position cursor, and playback
+ * controls. "Run" computes the *entire* step-by-step trace up front (see simulate.ts) — everything
+ * here (stepping, the slider, autoplay) just moves `currentStepIndex` through an already-computed
+ * `simulation.steps` array, it never re-runs anything, which is why scrubbing is instant.
+ */
 export function InputRunner() {
   const { active, dispatch } = useAppContext();
   const { machine, inputString, simulation, currentStepIndex, isPlaying } = active;

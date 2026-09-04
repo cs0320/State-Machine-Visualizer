@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./HueWheel.css";
 
+/** Clock-angle in degrees (0 = straight up, clockwise positive — matches the conic-gradient wheel's own orientation) from `center` to a pointer position. */
 function angleFromPointer(center: { x: number; y: number }, px: number, py: number): number {
   const dx = px - center.x;
   const dy = py - center.y;
@@ -8,6 +9,7 @@ function angleFromPointer(center: { x: number; y: number }, px: number, py: numb
   return ((deg % 360) + 360) % 360;
 }
 
+/** Lazy `useState` initializer: last-saved hue under `storageKey` if there is one, otherwise `defaultHue`. */
 function readStoredHue(storageKey: string, defaultHue: number): number {
   const raw = typeof localStorage !== "undefined" ? localStorage.getItem(storageKey) : null;
   const parsed = raw ? Number(raw) : NaN;

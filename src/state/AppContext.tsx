@@ -8,6 +8,14 @@ import { example1 } from "../examples/example1";
 import { example2 } from "../examples/example2";
 import { example3 } from "../examples/example3";
 
+/**
+ * All app state lives in one `useReducer` here, exposed via React context. The unit of state is
+ * a `Tab` (one per editor tab, built-in or custom) holding its own source text, compile/type
+ * errors, compiled machine, and playback state — switching tabs is just switching which one is
+ * "active" (see `AppContextValue.active`), not a separate loading step. State persists to
+ * localStorage (persistence.ts) on every change and is reloaded — recompiled from source, not
+ * trusted as-is — on boot; see `initialState`/`reconcileTabs`.
+ */
 const BUILTIN_EXAMPLES = [example1, example2, example3] as const;
 
 interface ExampleState {
@@ -55,6 +63,11 @@ type Action =
   | { type: "PLAY" }
   | { type: "PAUSE" };
 
+/**
+ * Runs both checks a tab's source goes through — the real TypeScript type-checker and this app's
+ * own structural compiler — every time. They're independent and don't influence each other: a
+ * structural failure doesn't skip the type-check, and a type error doesn't block compilation.
+ */
 function compileAndCheck(source: string): { tsErrors: CompileError[]; typeErrors: TypeCheckError[]; machine: StateMachineDef | null; tsSourceMap: TsSourceMap | null } {
   const typeErrors = typeCheckTypeScript(source);
   const result = compileTypeScript(source);
@@ -64,6 +77,7 @@ function compileAndCheck(source: string): { tsErrors: CompileError[]; typeErrors
   return { tsErrors: [], typeErrors, machine: result.machine, tsSourceMap: result.sourceMap };
 }
 
+/** An ExampleState freshly compiled from source — used whenever a tab gets (re)loaded with real content. */
 function loadedExampleState(source: string): ExampleState {
   const { tsErrors, typeErrors, machine, tsSourceMap } = compileAndCheck(source);
   return {
@@ -79,6 +93,7 @@ function loadedExampleState(source: string): ExampleState {
   };
 }
 
+/** A tab with no source yet — the state every tab starts in until it's first opened or explicitly loaded. */
 function emptyExampleState(): ExampleState {
   return {
     tsSourceText: "",
@@ -93,6 +108,7 @@ function emptyExampleState(): ExampleState {
   };
 }
 
+/** The three built-in tabs, all empty (see emptyExampleState) — what boots when there's nothing in localStorage yet. */
 function defaultInitialState(): AppState {
   return {
     activeTabId: "builtin-0",
@@ -106,6 +122,7 @@ function defaultInitialState(): AppState {
   };
 }
 
+/** -1 if `id` isn't one of the built-in tab ids ("builtin-0", "builtin-1", ...), otherwise its index into BUILTIN_EXAMPLES. */
 function builtinIndexForId(id: string): number {
   return BUILTIN_EXAMPLES.findIndex((_, i) => `builtin-${i}` === id);
 }
@@ -138,6 +155,7 @@ function reconcileTabs(persisted: PersistedState): Tab[] {
   return tabs;
 }
 
+/** The `useReducer` initializer: reload + recompile from localStorage if there's a valid snapshot, otherwise the default three empty built-in tabs. */
 function initialState(): AppState {
   const persisted = loadPersistedState();
   if (!persisted) return defaultInitialState();
@@ -146,6 +164,7 @@ function initialState(): AppState {
   return { activeTabId, tabs };
 }
 
+/** The inverse of reconcileTabs: strips AppState down to just what persistence.ts is willing to save (see its module comment for why). */
 function toPersistedState(state: AppState): PersistedState {
   return {
     version: 1,
@@ -160,6 +179,7 @@ function toPersistedState(state: AppState): PersistedState {
   };
 }
 
+/** Shorthand most reducer cases use: apply `updater` to the currently-active tab's ExampleState, leave every other tab untouched. */
 function updateActiveTab(state: AppState, updater: (ex: ExampleState) => ExampleState): AppState {
   return {
     ...state,
@@ -167,6 +187,7 @@ function updateActiveTab(state: AppState, updater: (ex: ExampleState) => Example
   };
 }
 
+/** The whole app's state transitions. See the `Action` union above for what each case does at a glance; the trickier ones have their own comments below. */
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "SET_ACTIVE_TAB": {
@@ -283,6 +304,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+/** Wrap the app in this once, near the root — everything else reads/dispatches via useAppContext(). */
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
 
@@ -297,6 +319,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
+/** `state`/`dispatch` for the whole reducer, plus `activeTab`/`active` as a convenience so components don't all have to re-derive "which tab is active" themselves. */
 export function useAppContext(): AppContextValue {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error("useAppContext must be used within AppProvider");

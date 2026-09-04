@@ -1,5 +1,12 @@
 import type { ConditionSpec, JsonValue, ValueExpr } from "../types/stateMachine";
 
+/**
+ * Small, pure helpers used by simulate.ts to interpret the two smallest pieces of the machine
+ * data format: "where does an action's value come from" (ValueExpr) and "does this transition's
+ * condition match the current character" (ConditionSpec). Kept separate from simulate.ts mainly
+ * because they're independently useful/testable in isolation.
+ */
+
 /** Resolves a ValueExpr to a concrete value. Never executes user-supplied code. */
 export function resolveValue(
   expr: ValueExpr,
