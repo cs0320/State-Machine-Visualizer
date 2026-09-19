@@ -224,6 +224,63 @@ counters as strings/arrays, or track them as a literal you `set` explicitly.
 Any of these produce a compile error listed under the editor, with a line number where possible —
 try to keep branches simple and literal, in the style of the examples above.
 
+## Annotated walkthrough (Example 1)
+
+The built-in **Example 1** tab, with the meaning of each piece explained inline. (The shipped
+source itself has no comments — see the top of the README for why — this is the same code with
+annotations added for reference.)
+
+```ts
+// Each declared state becomes its own node in the diagram. These are the only
+// state names that may be used anywhere else in the code.
+type State = "s1";
+
+// The start state. It must already be one of the names declared in `State` above.
+const startState: State = "s1";
+
+// `vars` are any variables you want to reference or build up while the machine runs.
+const vars: { field: string; row: string[]; rows: string[][] } = {
+  field: "",
+  row: [],
+  rows: [],
+};
+
+// The function that actually transitions between states. It's a switch statement with
+// one case per declared state. The visualizer calls `step` once per character of your
+// input, in order, feeding it the current state and getting the next state back.
+function step(state: State, char: string | null): State {
+  switch (state) {
+    case "s1":
+      // Each `if` inside a case becomes an edge out of that state. The condition
+      // (`char === ...`) becomes the edge's label; the actions before `return` run
+      // when that edge is taken.
+      if (char === ",") {
+        vars.row.push(vars.field);
+        vars.field = "";
+        return "s1";
+      }
+      if (char === "\n") {
+        vars.row.push(vars.field);
+        vars.field = "";
+        vars.rows.push(vars.row);
+        vars.row = [];
+        return "s1";
+      }
+      if (char === null) {
+        vars.row.push(vars.field);
+        vars.field = "";
+        vars.rows.push(vars.row);
+        vars.row = [];
+        return "s1";
+      }
+      // A bare block with no `if` works the same way, except the edge it becomes is
+      // labeled "otherwise" — it matches anything not already caught above.
+      vars.field += char;
+      return "s1";
+  }
+}
+```
+
 ## Full example
 
 The two-state starter that ships in the TypeScript tab:

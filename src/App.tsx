@@ -76,6 +76,14 @@ function AppShell() {
         <h1>State Machine Visualizer</h1>
         <p>Define a state machine in TypeScript, run a string through it, and watch each step.</p>
         <div className="app__header-tools">
+          <a
+            className="app__docs-link"
+            href="https://docs.google.com/document/d/1_dBY52R75kuOEGDlTZRvQp28MRxz__yYVH0Ua2tSA38/edit?tab=t.0"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Documentation
+          </a>
           <BackgroundColorPicker />
           <ColorPicker />
         </div>

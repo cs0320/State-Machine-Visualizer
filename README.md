@@ -74,7 +74,7 @@ src/
   examples/     The three built-in example machines' TypeScript source.
 docs/
   typescript-format.md   Full reference for the recognized TypeScript grammar.
-  deployment.md           How to deploy to Vercel.
+  deployment.md           How to deploy to GitHub Pages.
 ```
 
 ## Testing
@@ -100,8 +100,11 @@ handful of hues that failed contrast with any text color) was caught by that tes
 
 ## Contributing
 
-- Don't add comments/descriptive names to the files in `src/examples/` — they're deliberately
-  anonymized; see the top of this README for why.
+- Don't add comments/descriptive names to `src/examples/` that explain what a machine's states or
+  transitions *do* — they're deliberately anonymized; see the top of this README for why. Comments
+  that explain the DSL's *syntax* (what a `type State` declaration is for, what a bare trailing
+  `if`-less block means, etc.) are fine — `example1.ts` is annotated this way as a syntax
+  reference — as long as they don't describe the CSV-parsing behavior itself.
 - Run `npm run build && npm run test && npm run lint` before committing — all three should be
   clean.
 - If you touch `src/engine/`, add or update tests alongside the change; that directory is

@@ -116,6 +116,32 @@
   font-weight: 600;
 }
 
+.transition-edge__loop-handle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1.5px solid var(--muted);
+  opacity: 0.6;
+  pointer-events: all;
+  cursor: grab;
+  touch-action: none;
+  transition: opacity 120ms ease, border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.transition-edge__loop-handle--active {
+  opacity: 1;
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-ring);
+}
+
+.transition-edge__loop-handle:active,
+.transition-edge__loop-handle--active {
+  cursor: grabbing;
+}
+
 .react-flow__attribution {
   display: none;
 }

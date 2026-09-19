@@ -1,39 +1,39 @@
-# Deploying to Vercel
+# Deploying to GitHub Pages
 
 This is a static Vite/React SPA — `npm run build` produces `dist/`, and that's the entire
-deployment artifact (no server, no environment variables, no database). `vercel.json` at the repo
-root pins the framework/build command explicitly so detection is unambiguous.
+deployment artifact (no server, no environment variables, no database). It's deployed as a GitHub
+Pages **project page** — served at `https://cs32.github.io/State-Machine-Visualizer/`, not the
+domain root — via the GitHub Actions workflow at `.github/workflows/deploy.yml`.
 
-## Option A — Vercel dashboard (recommended, no CLI needed)
+## How it works
 
-1. Push this repo to GitHub (if it isn't already).
-2. Go to [vercel.com/new](https://vercel.com/new) and sign in.
-3. Import the GitHub repo. Vercel will read `vercel.json` and pick up:
-   - Build command: `npm run build`
-   - Output directory: `dist`
-4. Click **Deploy**. First deploy takes ~1 minute.
-5. Every push to your default branch redeploys production automatically; every PR gets its own
-   preview URL.
+On every push to `main`, the workflow:
 
-No environment variables or additional configuration are needed.
+1. Installs dependencies, runs `npm run lint`, `npm run test`, and `npm run build` — a broken
+   build or failing check blocks the deploy.
+2. Uploads `dist/` as a Pages artifact and publishes it via `actions/deploy-pages`.
 
-## Option B — Vercel CLI
+Because this is a project page and not an org/user root page, `vite.config.ts` sets
+`base: '/State-Machine-Visualizer/'` for the production build (the dev server still serves from
+`/`) — without it, every asset URL in the built `index.html` would 404 once deployed, since the
+site doesn't live at the domain root. **If the repo is ever renamed after moving into the org,
+this `base` value has to be updated to match**, or the deployed page will load a blank white
+screen with 404s in the console for every JS/CSS asset.
 
-```bash
-npm install -g vercel   # one-time
-vercel login            # opens a browser to authenticate
-vercel                  # from the repo root: links the project, deploys a preview
-vercel --prod           # promotes to your production domain
-```
+## One-time setup (do this once, per repo, after it's transferred into the org)
 
-The first `vercel` run asks a few setup questions (scope/team, project name, link to existing
-project or not) — accept the defaults unless you have a reason not to. `.vercel/` (the local
-project link Vercel CLI creates) is already git-ignored.
-
-## Custom domain
-
-Project → Settings → Domains in the Vercel dashboard. Not required — every deploy gets a
-`*.vercel.app` URL automatically.
+1. **Transfer the repo into the `cs32` org.** GitHub Settings → General → Danger Zone → Transfer
+   ownership, on the current repo. This needs to be done by someone with admin rights on this repo
+   *and* the ability to create repos in the `cs32` org — not something scriptable from here.
+2. **Enable Pages with GitHub Actions as the source.** In the (now-transferred) repo: Settings →
+   Pages → Build and deployment → Source → **GitHub Actions**. Don't pick "Deploy from a branch" —
+   this workflow pushes directly via the Pages deployment API, no `gh-pages` branch involved.
+3. **If the repo is private:** GitHub Pages for private repos requires GitHub Team or Enterprise
+   Cloud on the org (a plain free/Pro org doesn't unlock it) — confirm the `cs32` org has that
+   before assuming a private repo can serve a public Pages site. If it can't, the repo needs to be
+   public for Pages to work at all.
+4. Push to `main` (or re-run the workflow manually via Actions → Deploy to GitHub Pages → Run
+   workflow) to trigger the first deploy.
 
 ## Verifying a deploy locally first
 
@@ -42,5 +42,6 @@ npm run build
 npm run preview   # serves dist/ at http://localhost:4173
 ```
 
-Useful as a sanity check that the production build (minified, no dev-server conveniences) still
-works before pushing.
+`vite preview` doesn't apply the production `base` path the same way a real Pages deploy does, so
+this is a sanity check on the build output (minified, no dev-server conveniences) — not a full
+stand-in for the deployed URL.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReactFlow, ReactFlowProvider, Background, Controls, MarkerType, useNodesState, type EdgeTypes, type NodeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAppContext } from "../state/AppContext";
@@ -31,10 +31,19 @@ function DiagramInner() {
   const activeTransitionId = currentStep?.transition?.id;
 
   const [nodes, setNodes, onNodesChange] = useNodesState<StateFlowNode>([]);
+  // User-dragged self-loop adjustments (angle around the node's rim + how far it stretches out),
+  // keyed by transition id. Reset alongside node layout when the machine itself changes, same as
+  // dragged node positions — neither is meant to survive a fresh Apply or tab switch.
+  const [loopOverrides, setLoopOverrides] = useState<Record<string, { angleDeg: number; height: number }>>({});
+
+  const handleLoopChange = useCallback((edgeId: string, angleDeg: number, height: number) => {
+    setLoopOverrides((prev) => ({ ...prev, [edgeId]: { angleDeg, height } }));
+  }, []);
 
   // Re-layout only when the machine definition itself changes (a tab switch or a fresh Apply).
   // This intentionally does NOT depend on activeState, so user-dragged positions survive playback.
   useEffect(() => {
+    setLoopOverrides({});
     if (!machine) {
       setNodes([]);
       return;
@@ -75,11 +84,14 @@ function DiagramInner() {
           isSelfLoop: geo.isSelfLoop,
           offsetIndex: geo.offsetIndex,
           flip: geo.flip,
+          loopAngleDeg: loopOverrides[t.id]?.angleDeg,
+          loopHeight: loopOverrides[t.id]?.height,
+          onLoopChange: handleLoopChange,
         },
         zIndex: active ? 1 : 0,
       };
     });
-  }, [machine, activeTransitionId]);
+  }, [machine, activeTransitionId, loopOverrides, handleLoopChange]);
 
   if (!machine) {
     return <div className="diagram-view__empty">No valid machine loaded yet.</div>;

@@ -22,6 +22,12 @@ export interface TransitionEdgeData {
   isSelfLoop: boolean;
   offsetIndex: number;
   flip: boolean;
+  /** User-dragged override for where the loop sits around the node's rim (degrees, 0 = top, clockwise). Falls back to the auto-fanned lane angle when unset. */
+  loopAngleDeg?: number;
+  /** User-dragged override for how far the loop bulges out from the rim. Falls back to `SELF_LOOP_HEIGHT` when unset. */
+  loopHeight?: number;
+  /** Called while dragging the loop's apex handle, so the owner can persist the new angle/height. */
+  onLoopChange?: (edgeId: string, angleDeg: number, height: number) => void;
   [key: string]: unknown;
 }
 
@@ -33,6 +39,9 @@ const LANE_BOW = 26;
 const SELF_LOOP_SPAN_DEG = 34;
 const SELF_LOOP_GAP_DEG = 15;
 const SELF_LOOP_HEIGHT = 70;
+const SELF_LOOP_MIN_HEIGHT = 28;
+const SELF_LOOP_MAX_HEIGHT = 260;
+const SELF_LOOP_HANDLE_OFFSET = 16;
 
 /** A node's live center and radius, read straight from React Flow's internal store rather than our own layout state — this is what makes edges track a node while it's being dragged. */
 function nodeCenterAndRadius(node: InternalNode<Node>): { center: Point; radius: number } {
@@ -61,15 +70,19 @@ interface CubicGeometry {
 
 type EdgeGeometryPoints = QuadraticGeometry | CubicGeometry;
 
-/** Both ends anchored on the node's own rim, fanned around the top by lane so multiple self-loops don't stack. */
-function selfLoopGeometry(center: Point, radius: number, offsetIndex: number): CubicGeometry {
-  const loopCenterAngle = offsetIndex * SELF_LOOP_SPAN_DEG;
-  const p1 = polarPoint(center, radius, loopCenterAngle - SELF_LOOP_GAP_DEG);
-  const p2 = polarPoint(center, radius, loopCenterAngle + SELF_LOOP_GAP_DEG);
-  const dirRad = (loopCenterAngle * Math.PI) / 180;
+/**
+ * Both ends anchored on the node's own rim, centered on `angleDeg` (0 = top, clockwise) and
+ * bulging out by `height`. Defaults come from the auto-fanned lane (`offsetIndex *
+ * SELF_LOOP_SPAN_DEG` / `SELF_LOOP_HEIGHT`), but either can be overridden by dragging the loop's
+ * apex handle — see `onLoopChange` in TransitionEdge.
+ */
+function selfLoopGeometry(center: Point, radius: number, angleDeg: number, height: number): CubicGeometry {
+  const p1 = polarPoint(center, radius, angleDeg - SELF_LOOP_GAP_DEG);
+  const p2 = polarPoint(center, radius, angleDeg + SELF_LOOP_GAP_DEG);
+  const dirRad = (angleDeg * Math.PI) / 180;
   const outward = { x: Math.sin(dirRad), y: -Math.cos(dirRad) };
-  const c1 = { x: p1.x + outward.x * SELF_LOOP_HEIGHT, y: p1.y + outward.y * SELF_LOOP_HEIGHT };
-  const c2 = { x: p2.x + outward.x * SELF_LOOP_HEIGHT, y: p2.y + outward.y * SELF_LOOP_HEIGHT };
+  const c1 = { x: p1.x + outward.x * height, y: p1.y + outward.y * height };
+  const c2 = { x: p2.x + outward.x * height, y: p2.y + outward.y * height };
   return { kind: "cubic", p0: p1, c1, c2, p1: p2 };
 }
 
@@ -135,14 +148,24 @@ export function TransitionEdge({ id, source, target, data, markerEnd }: EdgeProp
   const { screenToFlowPosition } = useReactFlow();
   const [labelT, setLabelT] = useState(0.5);
   const draggingRef = useRef(false);
+  const [loopDragging, setLoopDragging] = useState(false);
 
   let geo: EdgeGeometryPoints | null = null;
+  let selfLoopCenter: Point | null = null;
+  let selfLoopRadius = 0;
+  let selfLoopAngleDeg = 0;
   if (sourceNode && targetNode && data) {
     const src = nodeCenterAndRadius(sourceNode);
     const tgt = nodeCenterAndRadius(targetNode);
-    geo = data.isSelfLoop
-      ? selfLoopGeometry(src.center, src.radius, data.offsetIndex)
-      : parallelEdgeGeometry(src.center, src.radius, tgt.center, tgt.radius, data.offsetIndex, data.flip);
+    if (data.isSelfLoop) {
+      selfLoopCenter = src.center;
+      selfLoopRadius = src.radius;
+      selfLoopAngleDeg = data.loopAngleDeg ?? data.offsetIndex * SELF_LOOP_SPAN_DEG;
+      const height = data.loopHeight ?? SELF_LOOP_HEIGHT;
+      geo = selfLoopGeometry(src.center, src.radius, selfLoopAngleDeg, height);
+    } else {
+      geo = parallelEdgeGeometry(src.center, src.radius, tgt.center, tgt.radius, data.offsetIndex, data.flip);
+    }
   }
 
   const handleLabelPointerDown = useCallback((e: React.PointerEvent) => {
@@ -166,14 +189,52 @@ export function TransitionEdge({ id, source, target, data, markerEnd }: EdgeProp
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   }, []);
 
+  const handleLoopPointerDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setLoopDragging(true);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const handleLoopPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!loopDragging || !selfLoopCenter || !data?.onLoopChange) return;
+      const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const dx = flowPos.x - selfLoopCenter.x;
+      const dy = flowPos.y - selfLoopCenter.y;
+      const angleDeg = (Math.atan2(dx, -dy) * 180) / Math.PI;
+      const distance = Math.hypot(dx, dy);
+      const height = Math.min(SELF_LOOP_MAX_HEIGHT, Math.max(SELF_LOOP_MIN_HEIGHT, distance - selfLoopRadius));
+      data.onLoopChange(id, angleDeg, height);
+    },
+    [data, id, loopDragging, screenToFlowPosition, selfLoopCenter, selfLoopRadius]
+  );
+
+  const handleLoopPointerUp = useCallback((e: React.PointerEvent) => {
+    setLoopDragging(false);
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+  }, []);
+
   if (!data || !geo) return null;
   const active = data.active;
   const path = pathFor(geo);
   const labelPoint = sampleAt(geo, labelT);
+  let loopHandlePoint: Point | null = null;
+  if (data.isSelfLoop) {
+    const apex = sampleAt(geo, 0.5);
+    const dirRad = (selfLoopAngleDeg * Math.PI) / 180;
+    const outward = { x: Math.sin(dirRad), y: -Math.cos(dirRad) };
+    loopHandlePoint = { x: apex.x + outward.x * SELF_LOOP_HANDLE_OFFSET, y: apex.y + outward.y * SELF_LOOP_HANDLE_OFFSET };
+  }
 
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} className={`transition-edge${active ? " transition-edge--active" : ""}`} />
+      <BaseEdge
+        id={id}
+        path={path}
+        markerEnd={markerEnd}
+        className={`transition-edge${active || loopDragging ? " transition-edge--active" : ""}`}
+      />
       <EdgeLabelRenderer>
         <div
           className={`transition-edge__label nopan nodrag${active ? " transition-edge__label--active" : ""}`}
@@ -185,6 +246,16 @@ export function TransitionEdge({ id, source, target, data, markerEnd }: EdgeProp
         >
           {data.label}
         </div>
+        {loopHandlePoint && (
+          <div
+            className={`transition-edge__loop-handle nopan nodrag${loopDragging ? " transition-edge__loop-handle--active" : ""}`}
+            style={{ transform: `translate(-50%, -50%) translate(${loopHandlePoint.x}px, ${loopHandlePoint.y}px)` }}
+            onPointerDown={handleLoopPointerDown}
+            onPointerMove={handleLoopPointerMove}
+            onPointerUp={handleLoopPointerUp}
+            title="Drag to move the loop around the node or stretch it out"
+          />
+        )}
       </EdgeLabelRenderer>
     </>
   );

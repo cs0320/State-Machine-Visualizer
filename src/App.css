@@ -31,6 +31,24 @@
   margin-left: auto;
 }
 
+.app__docs-link {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--node-bg);
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.app__docs-link:hover,
+.app__docs-link:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .app__body {
   flex: 1;
   min-height: 0;
