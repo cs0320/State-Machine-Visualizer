@@ -25,9 +25,14 @@ screen with 404s in the console for every JS/CSS asset.
 1. **Transfer the repo into the `cs32` org.** GitHub Settings → General → Danger Zone → Transfer
    ownership, on the current repo. This needs to be done by someone with admin rights on this repo
    *and* the ability to create repos in the `cs32` org — not something scriptable from here.
-2. **Enable Pages with GitHub Actions as the source.** In the (now-transferred) repo: Settings →
-   Pages → Build and deployment → Source → **GitHub Actions**. Don't pick "Deploy from a branch" —
-   this workflow pushes directly via the Pages deployment API, no `gh-pages` branch involved.
+2. **Enable Pages with GitHub Actions as the source.** The workflow passes `enablement: true` to
+   `actions/configure-pages`, which tries to flip this on for you via the API on first run — so
+   this step is often unnecessary. If the `configure-pages` step still fails with "Get Pages site
+   failed" / "Not Found" (this can happen if Pages is disabled at the org level, or the repo's
+   Settings → Actions → General → Workflow permissions aren't set to allow Actions to manage
+   Pages), do it manually instead: Settings → Pages → Build and deployment → Source →
+   **GitHub Actions**. Don't pick "Deploy from a branch" either way — this workflow pushes
+   directly via the Pages deployment API, no `gh-pages` branch involved.
 3. **If the repo is private:** GitHub Pages for private repos requires GitHub Team or Enterprise
    Cloud on the org (a plain free/Pro org doesn't unlock it) — confirm the `cs32` org has that
    before assuming a private repo can serve a public Pages site. If it can't, the repo needs to be
