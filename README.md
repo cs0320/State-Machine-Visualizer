@@ -1,5 +1,11 @@
 # State Machine Visualizer
 
+## Attribution
+
+This tool was created by Josh Bala for Brown's CSCI 0320/1340 in Fall 2026. Other staff members may have also contributed. Much of the project was co-designed and implemented with Claude Code. 
+
+## Preamble
+
 An educational tool for teaching finite state machines: define a machine in a constrained,
 recognizable subset of TypeScript, run a string through it character by character, and watch
 each step — the diagram, the machine's variables, and the source line that produced it, all in

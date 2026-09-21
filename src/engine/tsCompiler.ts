@@ -1,5 +1,6 @@
 import { parse } from "@babel/parser";
 import type {
+  CallExpression,
   Expression,
   Node,
   ObjectExpression,
@@ -7,7 +8,7 @@ import type {
   TSTypeAliasDeclaration,
   VariableDeclaration,
 } from "@babel/types";
-import type { ActionSpec, ConditionSpec, JsonValue, StateDef, StateMachineDef, TransitionDef, ValueExpr } from "../types/stateMachine";
+import type { ActionSpec, ConditionSpec, JsonValue, MachineExpr, StateDef, StateMachineDef, TransitionDef } from "../types/stateMachine";
 
 export interface LineRange {
   startLine: number;
@@ -279,7 +280,7 @@ function parseStartState(decl: VariableDeclaration, stateIds: Set<string>, error
  * only out of literals) into a plain JS value. Returns `undefined` for anything else — a variable
  * reference, a function call, a template literal, an `as` cast, etc. — which callers treat as
  * "this isn't a literal" rather than pushing their own error (so the same helper can be reused for
- * `vars` initial values and for literal ValueExprs inside actions, each with their own message).
+ * `vars` initial values and as parseExpr's literal fallback, each with their own message).
  */
 function literalToJson(node: Expression, errors: CompileError[]): JsonValue | undefined {
   switch (node.type) {
@@ -373,16 +374,33 @@ function extractRules(statements: Statement[], stateId: string, errors: CompileE
 }
 
 /**
- * Turns an `if` test expression into a ConditionSpec: `char === "x"` -> charEquals, `char === null`
- * -> endOfInput, or a chain of `char === "a" || char === "b" || ...` -> charIn. The `||` case
- * recurses on both sides and merges two charEquals/charIn results into one charIn — anything that
- * doesn't reduce to that shape (comparing something other than `char`, mixing `||` with other
- * operators, etc.) is reported as an error rather than silently ignored.
+ * Turns an `if` test expression into a ConditionSpec. Tries the common char-comparison shapes
+ * first — `char === "x"` -> charEquals, `char === null` -> endOfInput, a chain of
+ * `char === "a" || char === "b" || ...` -> charIn — since those produce nicer edge labels; if the
+ * test isn't one of those, it falls back to a general boolean MachineExpr (see parseExpr), e.g.
+ * `parseInt(char) + 9 >= 10`, wrapped as an `expr` condition. `parseExpr` is what reports the
+ * error when neither shape matches, so there's nothing left to do here in that case.
  */
 function analyzeCondition(test: Expression, errors: CompileError[]): { spec: ConditionSpec; label: string } | undefined {
+  const simple = trySimpleCharCondition(test);
+  if (simple) return simple;
+
+  const expr = parseExpr(test, errors);
+  if (!expr) return undefined;
+  return { spec: { type: "expr", expr }, label: exprToLabel(expr) };
+}
+
+/**
+ * The char === "x" / char === null / `||`-chain-of-those shape only, reduced to the compact
+ * charEquals/charIn/endOfInput ConditionSpec kinds. Returns undefined *silently* — no error
+ * pushed — for anything else, including a malformed-looking char comparison (e.g. a multi-char
+ * string): analyzeCondition falls back to the general `parseExpr` path next, which is the one
+ * that ultimately reports an error if the test doesn't parse as a boolean expression either.
+ */
+function trySimpleCharCondition(test: Expression): { spec: ConditionSpec; label: string } | undefined {
   if (test.type === "LogicalExpression" && test.operator === "||") {
-    const left = analyzeCondition(test.left, errors);
-    const right = analyzeCondition(test.right, errors);
+    const left = trySimpleCharCondition(test.left);
+    const right = trySimpleCharCondition(test.right);
     if (left?.spec.type === "charEquals" && right?.spec.type === "charEquals") {
       const values = [left.spec.value, right.spec.value];
       return { spec: { type: "charIn", values }, label: `char in ${JSON.stringify(values)}` };
@@ -391,28 +409,136 @@ function analyzeCondition(test: Expression, errors: CompileError[]): { spec: Con
       const values = [...left.spec.values, right.spec.value];
       return { spec: { type: "charIn", values }, label: `char in ${JSON.stringify(values)}` };
     }
-    errors.push({ message: "`||` conditions must be a chain of `char === \"x\"` comparisons.", line: line(test) });
     return undefined;
   }
   if (test.type === "BinaryExpression" && (test.operator === "===" || test.operator === "==")) {
     const { left, right } = test;
     const literalSide = right.type === "StringLiteral" || right.type === "NullLiteral" ? right : left;
     const identSide = literalSide === right ? left : right;
-    if (identSide.type !== "Identifier" || identSide.name !== "char") {
-      errors.push({ message: "Conditions must compare `char` to a string or `null`.", line: line(test) });
-      return undefined;
-    }
+    if (identSide.type !== "Identifier" || identSide.name !== "char") return undefined;
     if (literalSide.type === "NullLiteral") {
       return { spec: { type: "endOfInput" }, label: "end of input" };
     }
     if (literalSide.type === "StringLiteral" && literalSide.value.length === 1) {
       return { spec: { type: "charEquals", value: literalSide.value }, label: `char === ${JSON.stringify(literalSide.value)}` };
     }
-    errors.push({ message: "`char === ...` must compare against a single character or `null`.", line: line(test) });
     return undefined;
   }
-  errors.push({ message: "Unrecognized condition; use `char === \"x\"`, `char === null`, or `a || b`.", line: line(test) });
   return undefined;
+}
+
+const MAX_EXPR_DEPTH = 50;
+const SUPPORTED_BINARY_OPS = new Set(["+", "-", "*", "/", "===", "!==", "<", "<=", ">", ">=", "&&", "||"]);
+type BinaryOp = Extract<MachineExpr, { kind: "binary" }>["op"];
+function isSupportedBinaryOp(op: string): op is BinaryOp {
+  return SUPPORTED_BINARY_OPS.has(op);
+}
+
+/**
+ * Matches a call's callee against the two-member call allowlist: bare `parseInt` or `isNaN`.
+ * Anything else (including a qualified call like `Number.isNaN`) isn't recognized — `isNaN` over
+ * `Number.isNaN` specifically because global `isNaN` is declared in lib.es5.d.ts, which is all
+ * tsTypeCheck.ts's real-tsc pass loads; `Number.isNaN` is ES2015+ and would type-error there even
+ * though this compiler would accept it.
+ */
+function callableName(callee: CallExpression["callee"]): "parseInt" | "isNaN" | undefined {
+  if (callee.type === "Identifier" && callee.name === "parseInt") return "parseInt";
+  if (callee.type === "Identifier" && callee.name === "isNaN") return "isNaN";
+  return undefined;
+}
+
+/**
+ * Recursively lowers a Babel expression into a MachineExpr, the small closed grammar interpreted
+ * by evaluateExpr (see expression.ts) — arithmetic, comparison, and boolean logic over
+ * char/vars.x/literals, plus parseInt/isNaN calls. Used both for action values
+ * (`vars.x = <here>`) and, via analyzeCondition's fallback, for conditions.
+ *
+ * Every failure path here pushes exactly one CompileError before returning undefined — either
+ * directly (a recognized-but-malformed shape, or nesting past MAX_EXPR_DEPTH) or by propagating a
+ * recursive call's own error — so a caller can always trust "undefined means an error was
+ * recorded" without adding its own. MAX_EXPR_DEPTH exists because this recursion, unlike the
+ * top-level Babel parse compileTypeScript already wraps in a try/catch, has no such guard: a
+ * pathologically deep-but-valid expression must fail as a normal CompileError rather than
+ * overflow the stack (this app has no ErrorBoundary around the editor — see fuzz.test.ts, which
+ * exercises exactly this class of adversarial input).
+ */
+function parseExpr(node: Expression, errors: CompileError[], depth = 0): MachineExpr | undefined {
+  if (depth > MAX_EXPR_DEPTH) {
+    errors.push({ message: "Expression is nested too deeply.", line: line(node) });
+    return undefined;
+  }
+
+  if (node.type === "Identifier" && node.name === "char") {
+    return { kind: "char" };
+  }
+
+  if (node.type === "MemberExpression" && node.object.type === "Identifier" && node.object.name === "vars" && node.property.type === "Identifier") {
+    return { kind: "var", name: node.property.name };
+  }
+
+  if (node.type === "CallExpression") {
+    const name = callableName(node.callee);
+    if (name) {
+      const [firstArg] = node.arguments;
+      if (node.arguments.length !== 1 || !firstArg || firstArg.type === "SpreadElement" || firstArg.type === "ArgumentPlaceholder") {
+        errors.push({ message: `\`${name}(...)\` must take exactly one argument.`, line: line(node) });
+        return undefined;
+      }
+      const arg = parseExpr(firstArg, errors, depth + 1);
+      if (!arg) return undefined;
+      return { kind: "call", name, args: [arg] };
+    }
+  }
+
+  if (node.type === "UnaryExpression" && node.operator === "!") {
+    const operand = parseExpr(node.argument, errors, depth + 1);
+    if (!operand) return undefined;
+    return { kind: "unary", op: "!", operand };
+  }
+
+  if (
+    (node.type === "BinaryExpression" || node.type === "LogicalExpression") &&
+    isSupportedBinaryOp(node.operator) &&
+    node.left.type !== "PrivateName" // only reachable for the "in" operator, which isn't supported
+  ) {
+    const left = parseExpr(node.left, errors, depth + 1);
+    const right = parseExpr(node.right, errors, depth + 1);
+    if (!left || !right) return undefined;
+    return { kind: "binary", op: node.operator, left, right };
+  }
+
+  const literal = literalToJson(node, errors);
+  if (literal !== undefined) return { kind: "literal", value: literal };
+
+  errors.push({
+    message:
+      "Expected `char`, `vars.<name>`, a literal, `parseInt(...)`, `isNaN(...)`, or an arithmetic/comparison/boolean expression built from those.",
+    line: line(node),
+  });
+  return undefined;
+}
+
+/** Pretty-prints a MachineExpr back to readable text for a transition's edge label, e.g. `parseInt(char) + 9 >= 10`. Sub-binary operands are parenthesized unconditionally rather than tracking operator precedence — occasionally over-parenthesized, never ambiguous. */
+function exprToLabel(expr: MachineExpr): string {
+  switch (expr.kind) {
+    case "char":
+      return "char";
+    case "var":
+      return `vars.${expr.name}`;
+    case "literal":
+      return JSON.stringify(expr.value);
+    case "call":
+      return `${expr.name}(${expr.args.map(exprToLabel).join(", ")})`;
+    case "unary":
+      return `!${parenthesizeIfBinary(expr.operand)}`;
+    case "binary":
+      return `${parenthesizeIfBinary(expr.left)} ${expr.op} ${parenthesizeIfBinary(expr.right)}`;
+  }
+}
+
+function parenthesizeIfBinary(expr: MachineExpr): string {
+  const label = exprToLabel(expr);
+  return expr.kind === "binary" ? `(${label})` : label;
 }
 
 /**
@@ -466,12 +592,12 @@ function analyzeAction(expr: Expression, errors: CompileError[]): ActionSpec | u
     const target = memberTargetName(expr.left, errors);
     if (!target) return undefined;
     if (expr.operator === "=") {
-      const value = resolveValueExpr(expr.right, errors);
+      const value = parseExpr(expr.right, errors);
       if (!value) return undefined;
       return { type: "set", target, value };
     }
     if (expr.operator === "+=") {
-      const value = resolveValueExpr(expr.right, errors);
+      const value = parseExpr(expr.right, errors);
       if (!value) return undefined;
       return { type: "append", target, value };
     }
@@ -490,7 +616,7 @@ function analyzeAction(expr: Expression, errors: CompileError[]): ActionSpec | u
       errors.push({ message: "`.push(...)` must take exactly one argument.", line: line(expr) });
       return undefined;
     }
-    const value = resolveValueExpr(expr.arguments[0] as Expression, errors);
+    const value = parseExpr(expr.arguments[0] as Expression, errors);
     if (!value) return undefined;
     return { type: "push", target, value };
   }
@@ -507,19 +633,3 @@ function memberTargetName(node: Expression, errors: CompileError[]): string | un
   return node.property.name;
 }
 
-/** Resolves the right-hand side of an action to a ValueExpr: the literal identifier `char`, a `vars.y` reference, or a literal (via literalToJson). */
-function resolveValueExpr(node: Expression, errors: CompileError[]): ValueExpr | undefined {
-  if (node.type === "Identifier" && node.name === "char") {
-    return { kind: "char" };
-  }
-  if (node.type === "MemberExpression") {
-    const name = memberTargetName(node, errors);
-    return name ? { kind: "var", name } : undefined;
-  }
-  const literal = literalToJson(node, errors);
-  if (literal === undefined) {
-    errors.push({ message: "Expected `char`, `vars.<name>`, or a literal value.", line: line(node) });
-    return undefined;
-  }
-  return { kind: "literal", value: literal };
-}

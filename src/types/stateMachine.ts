@@ -9,7 +9,9 @@ import { z } from "zod";
  * syntax that compiles to it — it dates from when machines could also be hand-authored as raw
  * JSON directly against this schema (since removed from the UI in favor of TypeScript-only
  * authoring), and is kept here because the schema/engine still support it even though nothing in
- * the current app produces it.
+ * the current app produces it. The same is true of `MachineExpr`'s `call`/`binary`/`unary`
+ * variants below: this schema is the actual security boundary (not just what `tsCompiler.ts`
+ * happens to emit), so it — not just the compiler — must keep `call.name` a closed literal union.
  */
 
 // A JSON-safe value: what a machine's variables are allowed to hold.
@@ -31,19 +33,47 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-// A value expression used inside actions: where does the value come from?
-export const valueExprSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("char") }), // the character just consumed (or "" at end of input)
-  z.object({ kind: z.literal("var"), name: z.string().min(1) }),
-  z.object({ kind: z.literal("literal"), value: jsonValueSchema }),
-]);
-export type ValueExpr = z.infer<typeof valueExprSchema>;
+/**
+ * A small, closed expression grammar shared by action values and (via the `expr` ConditionSpec
+ * below) conditions: arithmetic, comparison, and boolean logic over `char`/`vars.x`/literals,
+ * plus a two-member function-call allowlist (`parseInt`, `isNaN`). This is deliberately
+ * not "arbitrary JS" — `call.name` is a closed literal union rather than a string, so no schema
+ * change here can widen it to arbitrary dynamic dispatch; `evaluateExpr` in expression.ts must
+ * keep matching it with a hardcoded switch for the same reason.
+ */
+export const machineExprSchema: z.ZodType<MachineExpr> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("char") }), // the character just consumed (or "" at end of input)
+    z.object({ kind: z.literal("var"), name: z.string().min(1) }),
+    z.object({ kind: z.literal("literal"), value: jsonValueSchema }),
+    z.object({ kind: z.literal("call"), name: z.enum(["parseInt", "isNaN"]), args: z.array(machineExprSchema) }),
+    z.object({ kind: z.literal("unary"), op: z.literal("!"), operand: machineExprSchema }),
+    z.object({
+      kind: z.literal("binary"),
+      op: z.enum(["+", "-", "*", "/", "===", "!==", "<", "<=", ">", ">=", "&&", "||"]),
+      left: machineExprSchema,
+      right: machineExprSchema,
+    }),
+  ])
+);
+export type MachineExpr =
+  | { kind: "char" }
+  | { kind: "var"; name: string }
+  | { kind: "literal"; value: JsonValue }
+  | { kind: "call"; name: "parseInt" | "isNaN"; args: MachineExpr[] }
+  | { kind: "unary"; op: "!"; operand: MachineExpr }
+  | {
+      kind: "binary";
+      op: "+" | "-" | "*" | "/" | "===" | "!==" | "<" | "<=" | ">" | ">=" | "&&" | "||";
+      left: MachineExpr;
+      right: MachineExpr;
+    };
 
 // A side-effect performed when a transition is taken.
 export const actionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("append"), target: z.string().min(1), value: valueExprSchema }),
-  z.object({ type: z.literal("push"), target: z.string().min(1), value: valueExprSchema }),
-  z.object({ type: z.literal("set"), target: z.string().min(1), value: valueExprSchema }),
+  z.object({ type: z.literal("append"), target: z.string().min(1), value: machineExprSchema }),
+  z.object({ type: z.literal("push"), target: z.string().min(1), value: machineExprSchema }),
+  z.object({ type: z.literal("set"), target: z.string().min(1), value: machineExprSchema }),
 ]);
 export type ActionSpec = z.infer<typeof actionSchema>;
 
@@ -54,6 +84,8 @@ export const conditionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("charMatches"), pattern: z.string().min(1) }),
   z.object({ type: z.literal("endOfInput") }),
   z.object({ type: z.literal("else") }),
+  // A general boolean expression, e.g. `parseInt(char) + 9 >= 10` — see MachineExpr above.
+  z.object({ type: z.literal("expr"), expr: machineExprSchema }),
 ]);
 export type ConditionSpec = z.infer<typeof conditionSchema>;
 
