@@ -156,13 +156,12 @@ function reconcileTabs(persisted: PersistedState): Tab[] {
   return tabs;
 }
 
-/** The `useReducer` initializer: reload + recompile from localStorage if there's a valid snapshot, otherwise the default three empty built-in tabs. */
+/** The `useReducer` initializer: reload + recompile from localStorage if there's a valid snapshot, otherwise the default built-in tabs. Routes through the SET_ACTIVE_TAB reducer case so the active tab's starter source is loaded immediately, rather than staying blank until the user clicks its (already-selected) tab button. */
 function initialState(): AppState {
   const persisted = loadPersistedState();
-  if (!persisted) return defaultInitialState();
-  const tabs = reconcileTabs(persisted);
-  const activeTabId = tabs.some((t) => t.id === persisted.activeTabId) ? persisted.activeTabId : tabs[0].id;
-  return { activeTabId, tabs };
+  const tabs = persisted ? reconcileTabs(persisted) : defaultInitialState().tabs;
+  const activeTabId = persisted && tabs.some((t) => t.id === persisted.activeTabId) ? persisted.activeTabId : tabs[0].id;
+  return reducer({ activeTabId, tabs }, { type: "SET_ACTIVE_TAB", id: activeTabId });
 }
 
 /** The inverse of reconcileTabs: strips AppState down to just what persistence.ts is willing to save (see its module comment for why). */

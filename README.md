@@ -24,6 +24,12 @@ npm install
 npm run dev       # starts the dev server
 ```
 
+For Playwright testing:
+
+```bash
+ npx playwright install 
+ ```
+
 Other scripts:
 
 ```bash
