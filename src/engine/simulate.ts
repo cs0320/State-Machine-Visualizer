@@ -1,4 +1,4 @@
-import { matchesCondition, resolveValue } from "./expression";
+import { evaluateExpr, matchesCondition } from "./expression";
 import type { ActionSpec, JsonValue, StateMachineDef, TransitionDef } from "../types/stateMachine";
 
 /**
@@ -42,9 +42,10 @@ export interface SimulationResult {
 function findTransition(
   machine: StateMachineDef,
   fromState: string,
-  char: string | null
+  char: string | null,
+  variables: Record<string, JsonValue>
 ): TransitionDef | undefined {
-  return machine.transitions.find((t) => t.from === fromState && matchesCondition(t.condition, char));
+  return machine.transitions.find((t) => t.from === fromState && matchesCondition(t.condition, char, variables));
 }
 
 /**
@@ -66,7 +67,7 @@ function applyActions(
 ): Record<string, JsonValue> {
   const next = structuredClone(variables);
   for (const action of actions) {
-    const value = resolveValue(action.value, char, next);
+    const value = evaluateExpr(action.value, char, next);
     switch (action.type) {
       case "set":
         next[action.target] = value;
@@ -109,7 +110,7 @@ export function simulate(machine: StateMachineDef, input: string): SimulationRes
   for (let position = 0; position <= input.length; position++) {
     const isEndOfInput = position === input.length;
     const char = isEndOfInput ? null : input[position];
-    const transition = findTransition(machine, currentState, char);
+    const transition = findTransition(machine, currentState, char, variables);
 
     if (!transition) {
       // For end-of-input, having no matching transition just means "stop here" (no side effect needed).

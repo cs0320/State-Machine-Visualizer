@@ -39,6 +39,12 @@ const adversarialInputs: string[] = [
   "if (true) {".repeat(3000),
   "[".repeat(3000),
   "type State = \"a\";\n".repeat(3000) + 'const startState: State = "a";',
+  // Syntactically valid (unlike the deeply-nested-but-incomplete cases above), so this is the one
+  // that actually exercises parseExpr's own recursion in tsCompiler.ts rather than failing at the
+  // initial Babel parse — MAX_EXPR_DEPTH is what's expected to catch it instead of the call stack.
+  'type State = "a"; const vars = {}; const startState: State = "a"; function step(state: State, char: string | null): State { switch (state) { case "a": if (' +
+    "1+".repeat(3000) +
+    '1 === 1) return "a"; return "a"; } }',
 ];
 
 describe("compiler and type-checker resilience", () => {
