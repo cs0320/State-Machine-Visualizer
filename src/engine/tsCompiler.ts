@@ -1,5 +1,4 @@
 import { parse } from "@babel/parser";
-import { isExpression } from "@babel/types";
 import type {
   CallExpression,
   Expression,
@@ -481,13 +480,7 @@ function parseExpr(node: Expression, errors: CompileError[], depth = 0): Machine
     const name = callableName(node.callee);
     if (name) {
       const [firstArg] = node.arguments;
-      if (
-        node.arguments.length !== 1 ||
-        !firstArg ||
-        firstArg.type === "SpreadElement" ||
-        firstArg.type === "ArgumentPlaceholder" ||
-        !isExpression(firstArg)
-      ) {
+      if (node.arguments.length !== 1 || !firstArg || firstArg.type === "SpreadElement" || firstArg.type === "ArgumentPlaceholder") {
         errors.push({ message: `\`${name}(...)\` must take exactly one argument.`, line: line(node) });
         return undefined;
       }
@@ -640,3 +633,4 @@ function memberTargetName(node: Expression, errors: CompileError[]): string | un
   }
   return node.property.name;
 }
+
