@@ -612,11 +612,12 @@ function analyzeAction(expr: Expression, errors: CompileError[]): ActionSpec | u
   ) {
     const target = memberTargetName(expr.callee.object as Expression, errors);
     if (!target) return undefined;
-    if (expr.arguments.length !== 1) {
+    const [firstArg] = expr.arguments;
+    if (expr.arguments.length !== 1 || !firstArg || firstArg.type === "SpreadElement" || firstArg.type === "ArgumentPlaceholder") {
       errors.push({ message: "`.push(...)` must take exactly one argument.", line: line(expr) });
       return undefined;
     }
-    const value = parseExpr(expr.arguments[0] as Expression, errors);
+    const value = parseExpr(firstArg, errors);
     if (!value) return undefined;
     return { type: "push", target, value };
   }

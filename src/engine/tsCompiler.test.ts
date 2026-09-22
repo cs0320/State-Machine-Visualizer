@@ -251,6 +251,14 @@ describe("compileTypeScript — MachineExpr conditions and action values", () =>
     expect(r2.errors.some((e) => /must take exactly one argument/.test(e.message))).toBe(true);
   });
 
+  it("rejects `.push(...spread)` with the same arity error rather than miscompiling it", () => {
+    const source = example1.source.replace("vars.row.push(vars.field);", "vars.row.push(...vars.row);");
+    const result = compileTypeScript(source);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => /`\.push\(\.\.\.\)` must take exactly one argument/.test(e.message))).toBe(true);
+  });
+
   it("rejects an unsupported operator (%) rather than silently dropping the branch", () => {
     const source = ADD_ONE_DIGIT.replace('if (parseInt(char) + 9 >= 10) {', 'if (parseInt(char) % 2 === 0) {');
     const result = compileTypeScript(source);

@@ -46,7 +46,10 @@ export const machineExprSchema: z.ZodType<MachineExpr> = z.lazy(() =>
     z.object({ kind: z.literal("char") }), // the character just consumed (or "" at end of input)
     z.object({ kind: z.literal("var"), name: z.string().min(1) }),
     z.object({ kind: z.literal("literal"), value: jsonValueSchema }),
-    z.object({ kind: z.literal("call"), name: z.enum(["parseInt", "isNaN"]), args: z.array(machineExprSchema) }),
+    // `.length(1)`: evaluateExpr always reads `args[0]` unconditionally (parseInt/isNaN are both
+    // unary) — this schema is the security boundary for hand-authored machine data, so it must
+    // enforce that arity itself rather than relying on tsCompiler.ts's matching check.
+    z.object({ kind: z.literal("call"), name: z.enum(["parseInt", "isNaN"]), args: z.array(machineExprSchema).length(1) }),
     z.object({ kind: z.literal("unary"), op: z.literal("!"), operand: machineExprSchema }),
     z.object({
       kind: z.literal("binary"),
