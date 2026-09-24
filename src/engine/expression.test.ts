@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { evaluateExpr, matchesCondition } from "./expression";
-import type { JsonValue, MachineExpr } from "../types/stateMachine";
+import type { ConditionSpec, JsonValue, MachineExpr } from "../types/stateMachine";
 
 const NO_VARS: Record<string, JsonValue> = {};
 
@@ -120,5 +120,27 @@ describe("matchesCondition (expr kind)", () => {
     const countCheck: MachineExpr = { kind: "binary", op: ">", left: { kind: "var", name: "count" }, right: { kind: "literal", value: 3 } };
     expect(matchesCondition({ type: "expr", expr: countCheck }, "x", { count: 4 })).toBe(true);
     expect(matchesCondition({ type: "expr", expr: countCheck }, "x", { count: 2 })).toBe(false);
+  });
+});
+
+describe("matchesCondition curly-quote normalization", () => {
+  it("charEquals against a straight quote also matches both curly quote variants", () => {
+    const cond: ConditionSpec = { type: "charEquals", value: '"' };
+    expect(matchesCondition(cond, '"', NO_VARS)).toBe(true);
+    expect(matchesCondition(cond, "“", NO_VARS)).toBe(true);
+    expect(matchesCondition(cond, "”", NO_VARS)).toBe(true);
+    expect(matchesCondition(cond, "a", NO_VARS)).toBe(false);
+  });
+
+  it("charIn containing a straight quote also matches both curly quote variants", () => {
+    const cond: ConditionSpec = { type: "charIn", values: ['"', ","] };
+    expect(matchesCondition(cond, "“", NO_VARS)).toBe(true);
+    expect(matchesCondition(cond, "”", NO_VARS)).toBe(true);
+    expect(matchesCondition(cond, ",", NO_VARS)).toBe(true);
+  });
+
+  it("does not normalize for charMatches (regex conditions are left literal)", () => {
+    const cond: ConditionSpec = { type: "charMatches", pattern: '^"$' };
+    expect(matchesCondition(cond, "“", NO_VARS)).toBe(false);
   });
 });

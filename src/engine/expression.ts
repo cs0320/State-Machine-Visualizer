@@ -75,6 +75,20 @@ export function evaluateExpr(expr: MachineExpr, char: string | null, variables: 
   }
 }
 
+const CURLY_QUOTES: ReadonlySet<string> = new Set(["“", "”"]);
+
+/**
+ * Curly/"smart" quotes are a distinct character from the straight `"` a keyboard types — word
+ * processors substitute them in automatically, which otherwise silently defeats a `char === '"'`
+ * condition. Collapsing them onto `"` here means every machine's quote-matching conditions work
+ * against both without having to spell out all three variants. Only affects condition matching:
+ * the character itself (appended field content, what the UI displays for a step) stays exactly
+ * what was typed.
+ */
+function normalizeQuoteChar(char: string): string {
+  return CURLY_QUOTES.has(char) ? '"' : char;
+}
+
 /**
  * Whether a condition matches the current event.
  * `char` is the character being consumed, or null for the end-of-input event.
@@ -89,9 +103,9 @@ export function matchesCondition(condition: ConditionSpec, char: string | null, 
     case "endOfInput":
       return false;
     case "charEquals":
-      return char === condition.value;
+      return normalizeQuoteChar(char) === condition.value;
     case "charIn":
-      return condition.values.includes(char);
+      return condition.values.includes(normalizeQuoteChar(char));
     case "charMatches":
       return new RegExp(condition.pattern).test(char);
     case "else":
